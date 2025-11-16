@@ -1,6 +1,6 @@
 # User Service API - High-Load Ticket Booking System
 
-**Part 1: Extended User Profile Management**
+**Extended User Profile Management**
 
 A scalable, high-performance user profile service API built with Django REST Framework. This service manages extended user information and integrates with the auth-service for authentication. Part of the high-load ticket booking system microservices architecture.
 
@@ -43,6 +43,7 @@ docker compose up -d
 ```bash
 # Check health
 curl http://localhost:8000/api/v1/healthz
+```
 ---
 
 ## 📊 Features
@@ -50,6 +51,7 @@ curl http://localhost:8000/api/v1/healthz
 ### Core Functionality
 
 ✅ **Extended Profiles**: Store additional user information beyond auth data
+✅ **Email Verification**: Background email confirmation using Celery task workers
 ✅ **Admin Management**: Enhanced admin interface with Unfold
 ✅ **Profile Updates**: Update personal information and preferences
 ✅ **Soft Deletion**: Non-destructive profile removal
@@ -71,6 +73,10 @@ curl http://localhost:8000/api/v1/healthz
 - Response compression
 - Connection pooling
 
+#### Background Tasks
+- Email verification handled by Celery workers
+- Automatic retries for failed email delivery
+
 #### Developer Experience
 - Comprehensive API documentation
 - Interactive Swagger UI
@@ -86,6 +92,21 @@ curl http://localhost:8000/api/v1/healthz
 - `GET /api/v1/profiles/` - List all profiles (admin only)
 - `GET /api/v1/profiles/{id}/` - Get specific profile
 - `DELETE /api/v1/profiles/{id}/` - Soft delete profile
+
+### Email Verification
+- `POST /api/v1/profiles/{id}/send-email-verification/` — send verification code to user's email
+- `POST /api/v1/profiles/{id}/verify-email/` — verify email using the received code
+
+### 1. Send Verification Code
+`POST /api/v1/profiles/{id}/send-email-verification/`
+
+### 2. Verify Email Code
+`POST /api/v1/profiles/{id}/verify-email/`
+```http
+{
+  "code": "123456"
+}
+```
 
 ### Response Examples
 
