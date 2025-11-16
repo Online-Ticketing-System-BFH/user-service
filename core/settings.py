@@ -242,3 +242,6 @@ LOGGING = {
 }
 
 SWAGGER_PUBLIC = os.getenv('SWAGGER_PUBLIC', 'True') == 'True'
+
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = "no-reply@user-service.local"

@@ -12,10 +12,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = [
             'id', 'auth_id', 'email', 'username', 'first_name', 'last_name',
-            'full_name', 'phone', 'date_of_birth', 'gender', 'address',
+            'full_name', 'phone', 'date_of_birth', 'gender', 'address', "is_email_verified",
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at', "is_email_verified",]
 
     def validate(self, attrs):
         if self.instance:
