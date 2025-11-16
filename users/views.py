@@ -1,13 +1,16 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
+from rest_framework.decorators import action
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.core.cache import cache
+from django.utils import timezone
 import logging
 
 from .models import UserProfile
 from .serializers import UserProfileSerializer
+from .tasks import send_email_verification_task
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +45,113 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         except Exception:
             logger.exception("Cache invalidation failed")
 
+
+
     def perform_create(self, serializer):
         obj = serializer.save()
         self._invalidate_profile_cache(obj)
+
+
+
+    @swagger_auto_schema(
+        method='post',
+        operation_description="Send email verification code to this user's email",
+        responses={
+            202: openapi.Response('Accepted'),
+            400: openapi.Response('Bad Request'),
+            404: openapi.Response('Not Found'),
+        }
+    )
+    @action(detail=True, methods=['post'], url_path='send-email-verification')
+    def send_email_verification(self, request, pk=None):
+        profile = self.get_object()
+
+        if profile.deleted_at is not None:
+            return Response({"detail": "Profile is deleted."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if profile.is_email_verified:
+            return Response({"detail": "Email is already verified."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if profile.email_verification_sent_at and \
+           (timezone.now() - profile.email_verification_sent_at).total_seconds() < 60:
+            return Response({"detail": "Verification email was sent recently. Please wait before retrying."},
+                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        send_email_verification_task.delay(str(profile.id))
+
+        logger.info(
+            "Email verification task queued",
+            extra={"user_id": profile.id, "auth_id": profile.auth_id, "email": profile.email},
+        )
+
+        self._invalidate_profile_cache(profile)
+
+        return Response({"detail": "Verification email will be sent shortly."}, status=status.HTTP_202_ACCEPTED)
+
+
+
+    @swagger_auto_schema(
+        method='post',
+        operation_description="Verify user's email by code",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'code': openapi.Schema(type=openapi.TYPE_STRING, description='Verification code from email'),
+            },
+            required=['code'],
+        ),
+        responses={
+            200: openapi.Response('OK', UserProfileSerializer),
+            400: openapi.Response('Bad Request'),
+            404: openapi.Response('Not Found'),
+        }
+    )
+    @action(detail=True, methods=['post'], url_path='verify-email')
+    def verify_email(self, request, pk=None):
+        profile = self.get_object()
+        code = request.data.get("code")
+
+        if not code:
+            return Response({"detail": "Code is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if profile.deleted_at is not None:
+            return Response({"detail": "Profile is deleted."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if profile.is_email_verified:
+            return Response({"detail": "Email is already verified."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not profile.email_verification_code:
+            return Response({"detail": "Verification code is not set. Please request a new code."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if profile.email_verification_expires_at and timezone.now() > profile.email_verification_expires_at:
+            return Response({"detail": "Verification code has expired. Please request a new code."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if str(profile.email_verification_code) != str(code).strip():
+            return Response({"detail": "Invalid verification code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        profile.is_email_verified = True
+        profile.email_verification_code = None
+        profile.email_verification_expires_at = None
+        profile.save(update_fields=[
+            "is_email_verified",
+            "email_verification_code",
+            "email_verification_expires_at",
+            "updated_at",
+        ])
+
+        self._invalidate_profile_cache(profile)
+
+        logger.info(
+            "Email verified successfully",
+            extra={"user_id": profile.id, "auth_id": profile.auth_id, "email": profile.email},
+        )
+
+        serializer = self.get_serializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 
     @swagger_auto_schema(
         operation_description="Create a new user profile",
@@ -64,6 +171,8 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         if auth_id:
             qs = qs.filter(auth_id=auth_id)
         return qs
+
+
 
     @swagger_auto_schema(
         operation_description="Get details of a specific user profile",
@@ -85,6 +194,8 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             cache.set(cache_key, profile_data, timeout=PROFILE_TTL)
 
         return Response(profile_data)
+
+
 
     @swagger_auto_schema(
         operation_description="Get list of user profiles. For regular users returns only their profile, for admins returns all profiles",
@@ -113,6 +224,8 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             cache.set(LIST_KEY_ALL, profiles_data, timeout=LIST_TTL)
         return Response(profiles_data)
 
+
+
     @swagger_auto_schema(
         operation_description="Update user profile",
         request_body=UserProfileSerializer,
@@ -137,6 +250,8 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         )
         return Response(serializer.data)
 
+
+
     @swagger_auto_schema(
         operation_description="Partially update user profile (PATCH)",
         request_body=UserProfileSerializer,
@@ -151,6 +266,8 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         kwargs['partial'] = True
         return self.update(request, *args, **kwargs)
+
+
 
     @swagger_auto_schema(
         operation_description="Soft delete user profile",
