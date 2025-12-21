@@ -59,3 +59,34 @@ def send_email_verification_task(self, user_profile_id: str):
         "Verification email sent",
         extra={"user_profile_id": str(profile.id), "email": profile.email},
     )
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=10)
+def send_booking_confirmation_email_task(self, auth_id, event_data):
+    """Send booking confirmation email to customer."""
+    try:
+        profile = UserProfile.objects.get(auth_id=auth_id, deleted_at=None)
+    except UserProfile.DoesNotExist:
+        logger.warning(f"UserProfile not found for auth_id {auth_id} during booking confirmation")
+        return
+
+    reservation_id = event_data.get("reservation_id")
+    seat_count = len(event_data.get("seat_ids", []))
+
+    subject = "Booking Confirmed!"
+    message = (
+        f"Здравствуйте, {profile.first_name or profile.username}!\n\n"
+        f"Ваше бронирование #{reservation_id} успешно подтверждено.\n"
+        f"Количество мест: {seat_count}\n\n"
+        f"Ваши билеты доступны в личном кабинете.\n"
+        f"Спасибо, что выбрали нас!"
+    )
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@user-service.local")
+    recipient_list = [profile.email]
+
+    try:
+        send_mail(subject, message, from_email, recipient_list, fail_silently=False)
+        logger.info(f"Booking confirmation email sent to {profile.email}")
+    except Exception as exc:
+        logger.exception(f"Failed to send booking confirmation email to {profile.email}")
+        raise self.retry(exc=exc)

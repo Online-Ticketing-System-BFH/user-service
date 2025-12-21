@@ -66,6 +66,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'users.middleware.GatewayHeaderMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'users.middleware.RequestLoggingMiddleware',
@@ -214,9 +215,7 @@ CACHES = {
     }
 }
 
-JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
-JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
-
+# JWT is handled by API Gateway, which forwards X-User-Id header
 AUTH_SERVICE_URL = os.getenv('AUTH_SERVICE_URL')
 
 

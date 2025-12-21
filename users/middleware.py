@@ -6,6 +6,30 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
+class GatewayUser:
+    def __init__(self, auth_id, roles):
+        self.auth_id = auth_id
+        self.roles = roles
+        self.is_authenticated = True
+        self.is_staff = 'admin' in [r.lower() for r in roles]
+
+    @property
+    def id(self):
+        return self.auth_id
+
+    def __str__(self):
+        return f"GatewayUser(auth_id={self.auth_id}, roles={self.roles})"
+
+class GatewayHeaderMiddleware(MiddlewareMixin):
+    def process_request(self, request):
+        auth_id = request.META.get('HTTP_X_USER_ID')
+        roles_str = request.META.get('HTTP_X_USER_ROLES', '')
+        
+        if auth_id:
+            roles = [r.strip() for r in roles_str.split(',') if r.strip()]
+            request.user = GatewayUser(auth_id=int(auth_id), roles=roles)
+        # We don't need to do anything for else, Django's default user is already unauthenticated
+
 class RequestLoggingMiddleware(MiddlewareMixin):
     def process_request(self, request):
         request.start_time = time.time()
